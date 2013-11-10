@@ -200,7 +200,7 @@ class HadoopRDD[K, V](
       val hadoopSplit = split.asInstanceOf[HadoopPartition]
       tSplit = new HadoopPartition(id, hadoopSplit.index, inputSplits(hadoopSplit.index))
     } else {
-      println("Trying to get locations of the partition in normal computation " + split)
+      logDebug("Trying to get locations of the partition in normal computation " + split)
     }
     val hadoopSplit = tSplit.asInstanceOf[HadoopPartition]
     hadoopSplit.inputSplit.value.getLocations.filter(_ != "localhost")

@@ -855,16 +855,21 @@ abstract class RDD[T: ClassManifest](
    */
   def takeOrdered(num: Int)(implicit ord: Ordering[T]): Array[T] = top(num)(ord.reverse)
 
+  var _recomputes: ArrayBuffer[Int] = null
+  var _qPath: String = null
+
   /**
    * Save this RDD as a text file, using string representations of elements.
    */
   def saveAsTextFile(path: String) {
-    this.map(x => (NullWritable.get(), new Text(x.toString)))
-      .saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](path)
-  }
+    if (!path.startsWith("tachyon://")) {
+      this.map(x => (NullWritable.get(), new Text(x.toString)))
+        .saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](path)
+      return
+    }
 
-  var _recomputes: ArrayBuffer[Int] = null
-  var _qPath: String = null
+
+  }
 
   // TODO (HY) merge this into saveAsTextFile()
   def saveAsTextFileTachyon(inputPath: String, path: String) {
