@@ -17,7 +17,9 @@
 
 package org.apache.spark.rdd
 
+import java.nio.ByteBuffer
 import java.util.Random
+import java.util.ArrayList
 
 import scala.collection.Map
 import scala.collection.JavaConversions.mapAsScalaMap
@@ -71,7 +73,8 @@ import org.apache.spark._
  */
 abstract class RDD[T: ClassManifest](
     @transient private var sc: SparkContext,
-    @transient private var deps: Seq[Dependency[_]]
+    // TODO (HY) Add @transient back
+    private var deps: Seq[Dependency[_]]
   ) extends Serializable with Logging {
 
   /** Construct an RDD with just a one-to-one dependency on one parent */
@@ -106,9 +109,6 @@ abstract class RDD[T: ClassManifest](
   // =======================================================================
   // Methods and fields available on all RDDs
   // =======================================================================
-
-  /** The SparkContext that created this RDD. */
-  def sparkContext: SparkContext = sc
 
   /** A unique ID for this RDD (within its SparkContext). */
   val id: Int = sc.newRddId()
@@ -173,7 +173,8 @@ abstract class RDD[T: ClassManifest](
   // Our dependencies and partitions will be gotten by calling subclass's methods below, and will
   // be overwritten when we're checkpointed
   private var dependencies_ : Seq[Dependency[_]] = null
-  @transient private var partitions_ : Array[Partition] = null
+  // TODO (HY) add @transient back
+  private var partitions_ : Array[Partition] = null
 
   /** An Option holding our checkpoint RDD, if we are checkpointed */
   private def checkpointRDD: Option[RDD[T]] = checkpointData.flatMap(_.checkpointRDD)
@@ -862,6 +863,60 @@ abstract class RDD[T: ClassManifest](
       .saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](path)
   }
 
+  var _recomputes: ArrayBuffer[Int] = null
+  var _qPath: String = null
+
+  // TODO (HY) merge this into saveAsTextFile()
+  def saveAsTextFileTachyon(inputPath: String, path: String) {
+    System.out.println("Computing " + path + ": " + sc.env.tachyonFS + " input path " +
+      inputPath + " output path " + path)
+
+    var qualifiedPath = path
+    if (path.contains("recompute")) {
+    } else {
+      // TODO Traverse Spark RDD dependency to find the top RDDs.
+      val parents = new ArrayList[java.lang.String]()
+      if (inputPath != null && !inputPath.isEmpty) {
+        parents.add(inputPath.substring(path.find("19998") + 5))
+      }
+      val children = new ArrayList[java.lang.String]()
+      // TODO (HY) improve this.
+      val cmd = "/root/spark/run-example org.apache.spark.TachyonRecompute " + sc.master
+
+      for (i <- 0 until partitions.size) {
+        children.add(path.substring(path.find("19998") + 5) + "/part_" + i);
+      }
+      val data = new ArrayList[ByteBuffer]()
+      data.add(sc.env.closureSerializer.newInstance().serialize(this))
+      val dependencyId = sc.env.tachyonFS.createDependency(parents, children, cmd, data,
+        "comment", "Spark", "v0.8.0", tachyon.DependencyType.Wide.getValue(),
+        tachyon.Constants.MB * 512)
+
+      // val clientDependencyInfo = sc.env.tachyonFS.getClientDependencyInfo(dependencyndencyId)
+      qualifiedPath = path.substring(0, path.find("19998") + 5) + "/tachyon_dep/" + dependencyId
+    }
+
+    _qPath = qualifiedPath
+    System.out.println("Qualified Path : " + qualifiedPath)
+    var tempRdd = this.map(x => (NullWritable.get(), new Text(x.toString)))
+    tempRdd._qPath = qualifiedPath
+    tempRdd.saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](qualifiedPath)
+  }
+
+  // TODO (HY) Merge this into saveAsTextFileTachyon
+  def saveAsTextFileTachyonRecompute(tachyonAddr: String, depId: Int, recomputes: ArrayBuffer[Int]) {
+    var qualifiedPath = "tachyon://" + tachyonAddr + "/tachyon_recompute/" + depId
+
+    System.out.println("Qualified Path : " + qualifiedPath)
+    var tempRdd = this.map(x => (NullWritable.get(), new Text(x.toString)))
+    tempRdd._qPath = qualifiedPath
+    tempRdd._recomputes = recomputes
+    tempRdd.saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](qualifiedPath)
+    sc.env.tachyonFS.mkdir("/tachyon_recompute/done")
+    sc.env.tachyonFS.rename("/tachyon_recompute/" + depId, "/tachyon_recompute/done/" + System.currentTimeMillis() + "_" + depId)
+  }
+
+
   /**
    * Save this RDD as a compressed text file, using string representations of elements.
    */
@@ -940,7 +995,11 @@ abstract class RDD[T: ClassManifest](
   }
 
   /** The [[org.apache.spark.SparkContext]] that this RDD was created on. */
-  def context = sc
+  @transient def context = sc
+
+  def resetSparkContext(newSc: SparkContext) {
+    sc = newSc
+  }
 
   // Avoid handling doCheckpoint multiple times to prevent excessive recursion
   private var doCheckpointCalled = false

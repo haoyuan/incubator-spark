@@ -72,6 +72,7 @@ class HadoopRDD[K, V](
     minSplits: Int)
   extends RDD[(K, V)](sc, Nil) with Logging {
 
+  // TODO (HY) May need to address broadcast issue.
   def this(
       sc: SparkContext,
       conf: JobConf,
@@ -185,7 +186,23 @@ class HadoopRDD[K, V](
 
   override def getPreferredLocations(split: Partition): Seq[String] = {
     // TODO: Filtering out "localhost" in case of file:// URLs
-    val hadoopSplit = split.asInstanceOf[HadoopPartition]
+    var tSplit = split
+    if (System.getProperty("spark.tachyon.recompute", "false").toBoolean) {
+      val env = SparkEnv.get
+      val conf = getJobConf
+      SparkHadoopUtil.get.addCredentials(conf)
+      val inputFormat = getInputFormat(conf)
+      if (inputFormat.isInstanceOf[Configurable]) {
+        inputFormat.asInstanceOf[Configurable].setConf(conf)
+      }
+      val inputSplits = inputFormat.getSplits(conf, minSplits)
+      val array = new Array[Partition](inputSplits.size)
+      val hadoopSplit = split.asInstanceOf[HadoopPartition]
+      tSplit = new HadoopPartition(id, hadoopSplit.index, inputSplits(hadoopSplit.index))
+    } else {
+      println("Trying to get locations of the partition in normal computation " + split)
+    }
+    val hadoopSplit = tSplit.asInstanceOf[HadoopPartition]
     hadoopSplit.inputSplit.value.getLocations.filter(_ != "localhost")
   }
 

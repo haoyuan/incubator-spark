@@ -113,7 +113,8 @@ object SparkBuild extends Build {
 
    // For Sonatype publishing
     resolvers ++= Seq("sonatype-snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
-      "sonatype-staging" at "https://oss.sonatype.org/service/local/staging/deploy/maven2/"),
+      "sonatype-staging" at "https://oss.sonatype.org/service/local/staging/deploy/maven2/",
+      "Local Maven Repository" at Path.userHome.asFile.toURI.toURL + "/.m2/repository"),
 
     publishMavenStyle := true,
 
@@ -192,6 +193,8 @@ object SparkBuild extends Build {
   val excludeNetty = ExclusionRule(organization = "org.jboss.netty")
   val excludeAsm = ExclusionRule(organization = "asm")
   val excludeSnappy = ExclusionRule(organization = "org.xerial.snappy")
+  val excludeHadoop = ExclusionRule(organization = "org.apache.hadoop")
+  val excludeCurator = ExclusionRule(organization = "org.apache.curator")
 
   def coreSettings = sharedSettings ++ Seq(
     name := "spark-core",
@@ -230,7 +233,8 @@ object SparkBuild extends Build {
       "com.codahale.metrics" % "metrics-json" % "3.0.0",
       "com.codahale.metrics" % "metrics-ganglia" % "3.0.0",
       "com.twitter" % "chill_2.9.3" % "0.3.1",
-      "com.twitter" % "chill-java" % "0.3.1"
+      "com.twitter" % "chill-java" % "0.3.1",
+      "org.tachyonproject" % "tachyon" % "0.4.0-SNAPSHOT" excludeAll(excludeJackson, excludeNetty, excludeAsm, excludeCglib, excludeHadoop, excludeCurator)
     )
   )
 
